@@ -30,3 +30,6 @@ Download the latest APK from [Releases](https://github.com/The412Banner/Simple-L
 ## CI
 
 GitHub Actions builds and signs an APK on every `v*` tag push. Pre-release for tags containing `-pre` or `-beta`.
+
+---
+<sub>☕ [Support on Ko-fi](https://ko-fi.com/the412banner)</sub>
