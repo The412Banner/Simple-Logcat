@@ -1,0 +1,63 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+
+      - name: Build Debug APK
+        run: gradle assembleDebug
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK_PATH=$(find . -name '*-debug.apk' -not -path '*/test*' | head -1)
+          echo "path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "name=BannerLogs-${{ github.ref_name }}.apk" >> $GITHUB_OUTPUT
+
+      - name: Rename APK
+        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+
+      - name: Determine release type
+        id: rel
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == *"-pre"* ]] || [[ "$TAG" == *"-beta"* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.name }}
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          generate_release_notes: false
+          fail_on_unmatched_files: true
