@@ -31,18 +31,28 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
-      - name: Build Debug APK
-        run: gradle assembleDebug
+      - name: Build Release APK (unsigned)
+        run: gradle assembleRelease
 
-      - name: Locate APK
+      - name: Locate unsigned APK
         id: apk
         run: |
-          APK_PATH=$(find . -name '*-debug.apk' -not -path '*/test*' | head -1)
+          APK_PATH=$(find . -path '*/release/*.apk' | grep -v '\.apk\.idsig' | head -1)
           echo "path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "name=BannerLogs-${{ github.ref_name }}.apk" >> $GITHUB_OUTPUT
+          echo "name=SimpleLogcat-${{ github.ref_name }}.apk" >> $GITHUB_OUTPUT
 
-      - name: Rename APK
-        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+      - name: Sign APK (testkey v1/v2/v3)
+        run: |
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | sort -rV | head -1)
+          echo "Using apksigner: $APKSIGNER"
+          "$APKSIGNER" sign \
+            --key testkey.pk8 \
+            --cert testkey.x509.pem \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            "${{ steps.apk.outputs.path }}"
+          cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
 
       - name: Determine release type
         id: rel

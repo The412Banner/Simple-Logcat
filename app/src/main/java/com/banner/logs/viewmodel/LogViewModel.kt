@@ -2,6 +2,7 @@ package com.banner.logs.viewmodel
 
 import android.app.Application
 import android.content.ContentValues
+import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
@@ -36,6 +37,8 @@ data class UiState(
     val isRunning: Boolean = false,
     val isPaused: Boolean = false,
     val filterState: FilterState = FilterState(),
+    /** The package filter value currently persisted in SharedPreferences. Empty = nothing saved. */
+    val savedPackageFilter: String = "",
     /** 0 = unlimited */
     val maxLines: Int = 2000,
     val fontSize: Float = 12f,
@@ -48,7 +51,12 @@ data class UiState(
     val exportMessage: String? = null
 )
 
+private const val PREFS_NAME = "simple_logcat_prefs"
+private const val KEY_SAVED_PACKAGE_FILTER = "saved_package_filter"
+
 class LogViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val entriesMutex = Mutex()
     private val pidsMutex = Mutex()
@@ -66,6 +74,17 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
     private val dirty = AtomicBoolean(false)
 
     init {
+        // Load saved package filter
+        val savedFilter = prefs.getString(KEY_SAVED_PACKAGE_FILTER, "") ?: ""
+        _uiState.update { state ->
+            state.copy(
+                savedPackageFilter = savedFilter,
+                filterState = if (savedFilter.isNotEmpty())
+                    state.filterState.copy(packageFilter = savedFilter)
+                else state.filterState
+            )
+        }
+
         startDirtyChecker()
         viewModelScope.launch(Dispatchers.IO) {
             val hasRoot = LogcatReader.checkRoot()
@@ -150,6 +169,19 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { recomputeFiltered() }
     }
 
+    /** Persists the current package filter text to SharedPreferences. */
+    fun savePackageFilter() {
+        val current = _uiState.value.filterState.packageFilter
+        prefs.edit().putString(KEY_SAVED_PACKAGE_FILTER, current).apply()
+        _uiState.update { it.copy(savedPackageFilter = current) }
+    }
+
+    /** Clears the persisted package filter from SharedPreferences. */
+    fun clearSavedPackageFilter() {
+        prefs.edit().remove(KEY_SAVED_PACKAGE_FILTER).apply()
+        _uiState.update { it.copy(savedPackageFilter = "") }
+    }
+
     fun toggleLevel(level: LogLevel) {
         val current = _uiState.value.filterState.enabledLevels
         val updated = if (level in current) current - level else current + level
@@ -192,7 +224,6 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.update { it.copy(exportMessage = "Export failed: could not create file") }
                     }
                 } else {
-                    // API 26-28: write via root to avoid permission requirement
                     val cacheFile = File(getApplication<Application>().cacheDir, fileName)
                     cacheFile.writeText(content)
                     val proc = Runtime.getRuntime().exec(
@@ -213,7 +244,6 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun refreshPidMap() {
-        // getPidMap() reads /proc directly — no su needed, no SU popup
         val map = LogcatReader.getPidMap()
         viewModelScope.launch {
             pidsMutex.withLock {

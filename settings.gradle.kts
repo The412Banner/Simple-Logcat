@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BannerLogs"
+rootProject.name = "SimpleLogcat"
 include(":app")

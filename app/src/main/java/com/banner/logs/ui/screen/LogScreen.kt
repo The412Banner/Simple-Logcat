@@ -47,7 +47,15 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
     var showSettings by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showLevelFilter by remember { mutableStateOf(true) }
-    var showPackageFilter by remember { mutableStateOf(false) }
+    var showPackageFilter by remember { mutableStateOf(
+        // auto-open package filter bar if a saved filter was loaded
+        false
+    ) }
+
+    // Auto-open package filter bar if a saved filter was restored on launch
+    LaunchedEffect(Unit) {
+        if (uiState.savedPackageFilter.isNotEmpty()) showPackageFilter = true
+    }
 
     // Auto-scroll
     LaunchedEffect(filteredEntries.size) {
@@ -89,7 +97,7 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
                             Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    "Banner Logs",
+                                    "Simple Logcat",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -207,33 +215,62 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
                     )
                 }
 
-                // Package filter field
+                // Package filter field + save bookmark button
                 AnimatedVisibility(
                     visible = showPackageFilter,
                     enter = expandVertically(),
                     exit = shrinkVertically()
                 ) {
-                    OutlinedTextField(
-                        value = uiState.filterState.packageFilter,
-                        onValueChange = viewModel::setPackageFilter,
-                        placeholder = { Text("Filter by package name (e.g. com.example)") },
-                        leadingIcon = { Icon(Icons.Default.Apps, null, Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            if (uiState.filterState.packageFilter.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.setPackageFilter("") }) {
-                                    Icon(Icons.Default.Clear, null, Modifier.size(18.dp))
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 13.sp
-                        ),
+                    val packageFilter = uiState.filterState.packageFilter
+                    val savedFilter = uiState.savedPackageFilter
+                    val filterIsSaved = savedFilter.isNotEmpty() && savedFilter == packageFilter
+
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
+                            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = packageFilter,
+                            onValueChange = viewModel::setPackageFilter,
+                            placeholder = { Text("Filter by package (e.g. com.example)") },
+                            leadingIcon = { Icon(Icons.Default.Apps, null, Modifier.size(18.dp)) },
+                            trailingIcon = {
+                                if (packageFilter.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.setPackageFilter("") }) {
+                                        Icon(Icons.Default.Clear, null, Modifier.size(18.dp))
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            textStyle = LocalTextStyle.current.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        // Bookmark: save / clear saved filter
+                        IconButton(
+                            onClick = {
+                                if (filterIsSaved) viewModel.clearSavedPackageFilter()
+                                else if (packageFilter.isNotEmpty()) viewModel.savePackageFilter()
+                            },
+                            enabled = packageFilter.isNotEmpty() || savedFilter.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = if (filterIsSaved) Icons.Default.Bookmark
+                                              else Icons.Default.BookmarkBorder,
+                                contentDescription = if (filterIsSaved) "Clear saved filter"
+                                                     else "Save filter for next launch",
+                                tint = when {
+                                    filterIsSaved -> MaterialTheme.colorScheme.primary
+                                    packageFilter.isNotEmpty() -> LocalContentColor.current
+                                    else -> LocalContentColor.current.copy(alpha = 0.3f)
+                                }
+                            )
+                        }
+                    }
                 }
 
                 // Level filter chips
@@ -291,7 +328,6 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
                 uiState.isRootAvailable == null -> {
-                    // Checking root
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
@@ -321,7 +357,7 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "Banner Logs needs root to read system logcat.\nGrant root access when prompted.",
+                                "Simple Logcat needs root to read system logcat.\nGrant root access when prompted.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -374,7 +410,7 @@ fun LogScreen(viewModel: LogViewModel = viewModel()) {
                             }
                         }
                     }
-                    // Scroll-to-bottom FAB (visible when not auto-scrolling)
+                    // Scroll-to-bottom FAB (visible when auto-scroll is off)
                     if (!uiState.autoScroll) {
                         Box(
                             modifier = Modifier.fillMaxSize().padding(16.dp),
