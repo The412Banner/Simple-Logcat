@@ -1,5 +1,7 @@
 package com.banner.logs.ui.screen
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -8,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -111,8 +114,60 @@ fun SettingsSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            // --- Live File ---
+            // --- Export Location ---
             val context = LocalContext.current
+            val folderPicker = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocumentTree()
+            ) { uri ->
+                if (uri != null) viewModel.setExportUri(context, uri)
+            }
+
+            SectionLabel("Export Location")
+            Text(
+                text = "Where the save button writes log files.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    if (uiState.exportPathDisplay.isNotEmpty()) {
+                        Text(
+                            text = uiState.exportPathDisplay,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            text = "/sdcard/ (default)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (uiState.exportUriString.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.clearExportUri(context) }) {
+                            Icon(Icons.Default.Close, contentDescription = "Reset to default")
+                        }
+                    }
+                    OutlinedButton(onClick = { folderPicker.launch(null) }) {
+                        Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Choose")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // --- Live File ---
             SectionLabel("Live File Output")
             Text(
                 text = "Streams filtered logs to a file in real time. Keep app open or minimised — foreground service holds it alive.",

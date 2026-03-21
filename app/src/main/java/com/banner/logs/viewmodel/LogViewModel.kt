@@ -3,6 +3,8 @@ package com.banner.logs.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.banner.logs.data.LogEntry
@@ -49,11 +51,14 @@ data class UiState(
     val shownEntries: Int = 0,
     val exportMessage: String? = null,
     val liveFileEnabled: Boolean = false,
-    val liveFilePath: String = ""
+    val liveFilePath: String = "",
+    val exportUriString: String = "",
+    val exportPathDisplay: String = ""
 )
 
 private const val PREFS_NAME = "simple_logcat_prefs"
 private const val KEY_SAVED_FILTERS = "saved_package_filters"
+private const val KEY_EXPORT_URI = "export_uri"
 
 class LogViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -77,7 +82,14 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
         // Load saved package filter list
         val raw = prefs.getString(KEY_SAVED_FILTERS, "") ?: ""
         val savedFilters = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        _uiState.update { it.copy(savedFilters = savedFilters) }
+        val exportUriString = prefs.getString(KEY_EXPORT_URI, "") ?: ""
+        val exportPathDisplay = if (exportUriString.isNotEmpty())
+            uriToDisplayPath(Uri.parse(exportUriString)) else ""
+        _uiState.update { it.copy(
+            savedFilters = savedFilters,
+            exportUriString = exportUriString,
+            exportPathDisplay = exportPathDisplay
+        ) }
 
         startDirtyChecker()
         viewModelScope.launch(Dispatchers.IO) {
@@ -240,22 +252,73 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                 val fileName = "logcat-${sdf.format(Date())}.txt"
                 val content = entriesMutex.withLock { allEntries.joinToString("\n") { it.raw } }
 
-                val cacheFile = File(getApplication<Application>().cacheDir, fileName)
-                cacheFile.writeText(content)
-                val dest = "/sdcard/$fileName"
-                val proc = Runtime.getRuntime().exec(
-                    arrayOf("su", "-c", "cp '${cacheFile.absolutePath}' '$dest'")
-                )
-                val exit = proc.waitFor()
-                cacheFile.delete()
-                if (exit == 0) {
-                    _uiState.update { it.copy(exportMessage = "Saved to $dest") }
+                val uriString = _uiState.value.exportUriString
+                if (uriString.isNotEmpty()) {
+                    val ctx = getApplication<Application>()
+                    val treeUri = Uri.parse(uriString)
+                    val docId = DocumentsContract.getTreeDocumentId(treeUri)
+                    val dirUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                    val fileUri = DocumentsContract.createDocument(
+                        ctx.contentResolver, dirUri, "text/plain", fileName
+                    )
+                    if (fileUri != null) {
+                        ctx.contentResolver.openOutputStream(fileUri)?.use {
+                            it.write(content.toByteArray())
+                        }
+                        _uiState.update { it.copy(exportMessage = "Saved to ${it.exportPathDisplay}/$fileName") }
+                    } else {
+                        _uiState.update { it.copy(exportMessage = "Export failed: could not create file") }
+                    }
                 } else {
-                    _uiState.update { it.copy(exportMessage = "Export failed") }
+                    val cacheFile = File(getApplication<Application>().cacheDir, fileName)
+                    cacheFile.writeText(content)
+                    val dest = "/sdcard/$fileName"
+                    val proc = Runtime.getRuntime().exec(
+                        arrayOf("su", "-c", "cp '${cacheFile.absolutePath}' '$dest'")
+                    )
+                    val exit = proc.waitFor()
+                    cacheFile.delete()
+                    if (exit == 0) {
+                        _uiState.update { it.copy(exportMessage = "Saved to $dest") }
+                    } else {
+                        _uiState.update { it.copy(exportMessage = "Export failed") }
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(exportMessage = "Export failed: ${e.message}") }
             }
+        }
+    }
+
+    fun setExportUri(context: Context, uri: Uri) {
+        context.contentResolver.takePersistableUriPermission(
+            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+        val display = uriToDisplayPath(uri)
+        prefs.edit().putString(KEY_EXPORT_URI, uri.toString()).apply()
+        _uiState.update { it.copy(exportUriString = uri.toString(), exportPathDisplay = display) }
+    }
+
+    fun clearExportUri(context: Context) {
+        val uriString = _uiState.value.exportUriString
+        if (uriString.isNotEmpty()) {
+            try {
+                context.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(uriString),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: Exception) { /* ignore */ }
+        }
+        prefs.edit().remove(KEY_EXPORT_URI).apply()
+        _uiState.update { it.copy(exportUriString = "", exportPathDisplay = "") }
+    }
+
+    private fun uriToDisplayPath(uri: Uri): String {
+        val segment = uri.lastPathSegment ?: return uri.toString()
+        return when {
+            segment.startsWith("primary:") -> "/sdcard/" + segment.removePrefix("primary:")
+            segment.contains(":") -> segment.substringAfter(":")
+            else -> segment
         }
     }
 
