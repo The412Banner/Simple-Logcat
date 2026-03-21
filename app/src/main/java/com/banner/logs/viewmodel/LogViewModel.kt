@@ -1,10 +1,7 @@
 package com.banner.logs.viewmodel
 
 import android.app.Application
-import android.content.ContentValues
 import android.content.Context
-import android.os.Build
-import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.banner.logs.data.LogEntry
@@ -40,7 +37,7 @@ data class UiState(
     /** The package filter value currently persisted in SharedPreferences. Empty = nothing saved. */
     val savedPackageFilter: String = "",
     /** 0 = unlimited */
-    val maxLines: Int = 2000,
+    val maxLines: Int = 0,
     val fontSize: Float = 12f,
     val autoScroll: Boolean = true,
     val showTimestamp: Boolean = true,
@@ -204,38 +201,18 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                 val fileName = "logcat-${sdf.format(Date())}.txt"
                 val content = entriesMutex.withLock { allEntries.joinToString("\n") { it.raw } }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                        put(MediaStore.Downloads.IS_PENDING, 1)
-                    }
-                    val ctx = getApplication<Application>()
-                    val uri = ctx.contentResolver.insert(
-                        MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
-                    )
-                    if (uri != null) {
-                        ctx.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
-                        values.clear()
-                        values.put(MediaStore.Downloads.IS_PENDING, 0)
-                        ctx.contentResolver.update(uri, values, null, null)
-                        _uiState.update { it.copy(exportMessage = "Saved to Downloads/$fileName") }
-                    } else {
-                        _uiState.update { it.copy(exportMessage = "Export failed: could not create file") }
-                    }
+                val cacheFile = File(getApplication<Application>().cacheDir, fileName)
+                cacheFile.writeText(content)
+                val dest = "/sdcard/$fileName"
+                val proc = Runtime.getRuntime().exec(
+                    arrayOf("su", "-c", "cp '${cacheFile.absolutePath}' '$dest'")
+                )
+                val exit = proc.waitFor()
+                cacheFile.delete()
+                if (exit == 0) {
+                    _uiState.update { it.copy(exportMessage = "Saved to $dest") }
                 } else {
-                    val cacheFile = File(getApplication<Application>().cacheDir, fileName)
-                    cacheFile.writeText(content)
-                    val proc = Runtime.getRuntime().exec(
-                        arrayOf("su", "-c", "cp '${cacheFile.absolutePath}' '/sdcard/Download/$fileName'")
-                    )
-                    val exit = proc.waitFor()
-                    cacheFile.delete()
-                    if (exit == 0) {
-                        _uiState.update { it.copy(exportMessage = "Saved to /sdcard/Download/$fileName") }
-                    } else {
-                        _uiState.update { it.copy(exportMessage = "Export failed") }
-                    }
+                    _uiState.update { it.copy(exportMessage = "Export failed") }
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(exportMessage = "Export failed: ${e.message}") }
