@@ -1,6 +1,6 @@
 # Simple Logcat
 
-A professional root logcat reader for Android. Real-time log streaming with color-coded log levels, package filtering with saved presets, live file output for terminal tools, and export to internal storage.
+A professional root logcat reader for Android. Real-time log streaming with color-coded log levels, package filtering with saved presets, live file output for terminal tools, and export to any folder.
 
 ## Requirements
 
@@ -19,7 +19,8 @@ A professional root logcat reader for Android. Real-time log streaming with colo
   ```
   tail -f /sdcard/Android/data/com.banner.logs/files/simple-logcat-live.log
   ```
-- **Export** — saves all buffered logs to `/sdcard/logcat-<timestamp>.txt`
+- **Export** — saves all buffered logs to `logcat-<timestamp>.txt`; destination set via Settings → Export Location (default: `/sdcard/`)
+- **Custom export location** — Settings → Export Location → Choose opens the system folder picker; selection persists across restarts; tap × to reset
 - **Settings**: font size, max buffer lines (500 / 1k / 2k / 5k / 10k / 20k / ∞, default ∞), auto-scroll, timestamp/PID display, line wrap
 
 ## Signing
